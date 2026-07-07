@@ -165,6 +165,25 @@ export async function listInstagramAccounts(): Promise<SafeInstagramAccount[]> {
   return accounts;
 }
 
+/**
+ * Read-only existence/status check for one connection, used to validate the
+ * active publishing selection. Does not touch the proven execution path.
+ */
+export async function getInstagramConnectionStatus(
+  connectionId: string,
+): Promise<{ exists: boolean; status: string | null; toolkitSlug: string | null }> {
+  const composio = getClient();
+  try {
+    const record = await composio.getClient().connectedAccounts.retrieve(connectionId);
+    return { exists: true, status: record.status, toolkitSlug: record.toolkit.slug };
+  } catch (e) {
+    if ((e as { status?: number }).status === 404) {
+      return { exists: false, status: null, toolkitSlug: null };
+    }
+    throw e;
+  }
+}
+
 /** Re-run the identity read for one connection as an honest liveness test. */
 export async function testInstagramConnection(
   connectionId: string,

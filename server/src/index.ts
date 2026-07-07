@@ -1,9 +1,11 @@
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import {
   ConfigurationError,
+  getInstagramConnectionStatus,
   listInstagramAccounts,
   testInstagramConnection,
 } from "./composio.js";
+import { readSelection, writeSelection } from "./selectionStore.js";
 
 /**
  * Minimal deployable API boundary between the browser and Composio.
@@ -26,6 +28,49 @@ function errorBody(e: unknown): { error: string } {
   const message = e instanceof Error ? e.message : String(e);
   // Cap length so upstream stack dumps never flood the client.
   return { error: message.slice(0, 500) };
+}
+
+function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > 10_000) {
+        reject(new Error("Request body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (chunks.length === 0) return resolve(null);
+      try {
+        const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        resolve(typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : null);
+      } catch {
+        resolve(null);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+/** The selection is only accepted/returned when the connection is live and usable. */
+async function validateSelection(
+  externalConnectionId: string,
+): Promise<{ ok: true } | { ok: false; code: number; reason: string }> {
+  const info = await getInstagramConnectionStatus(externalConnectionId);
+  if (!info.exists) {
+    return { ok: false, code: 404, reason: "Selected connection no longer exists at the provider." };
+  }
+  if (info.toolkitSlug !== "instagram") {
+    return { ok: false, code: 409, reason: "Selected connection is not an Instagram connection." };
+  }
+  if (info.status !== "ACTIVE") {
+    return { ok: false, code: 409, reason: `Selected connection is not active (status: ${info.status}).` };
+  }
+  return { ok: true };
 }
 
 const server = createServer(async (req, res) => {
@@ -56,6 +101,43 @@ const server = createServer(async (req, res) => {
       }
       const result = await testInstagramConnection(connectionId);
       sendJson(res, 200, result);
+      return;
+    }
+
+    if (route === "GET /api/social/instagram/active-selection") {
+      const stored = readSelection();
+      if (!stored) {
+        sendJson(res, 200, { active: null });
+        return;
+      }
+      const check = await validateSelection(stored.externalConnectionId);
+      if (!check.ok) {
+        sendJson(res, 200, { active: null, issue: check.reason });
+        return;
+      }
+      sendJson(res, 200, {
+        active: { platform: stored.platform, externalConnectionId: stored.externalConnectionId },
+      });
+      return;
+    }
+
+    if (route === "PUT /api/social/instagram/active-selection") {
+      const body = await readJsonBody(req);
+      const externalConnectionId =
+        body && typeof body.externalConnectionId === "string" ? body.externalConnectionId.trim() : "";
+      if (!externalConnectionId) {
+        sendJson(res, 400, { error: "Missing required field: externalConnectionId" });
+        return;
+      }
+      const check = await validateSelection(externalConnectionId);
+      if (!check.ok) {
+        sendJson(res, check.code, { error: check.reason });
+        return;
+      }
+      const stored = writeSelection(externalConnectionId);
+      sendJson(res, 200, {
+        active: { platform: stored.platform, externalConnectionId: stored.externalConnectionId },
+      });
       return;
     }
 

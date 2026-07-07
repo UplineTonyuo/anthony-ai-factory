@@ -7,7 +7,11 @@ import type {
 } from "../model/types";
 import type { DiscoveredAccount, SocialProvider } from "../providers/SocialProvider";
 import { mockInstagramProvider } from "../providers/mockInstagram";
-import { composioInstagramProvider } from "../providers/composioInstagram";
+import {
+  composioInstagramProvider,
+  fetchActiveSelection,
+  saveActiveSelection,
+} from "../providers/composioInstagram";
 import { ConnectionCard } from "../components/ConnectionCard";
 
 /**
@@ -172,17 +176,59 @@ export function SocialConnections() {
     loading: true,
     error: null,
   });
+  const [selectionNote, setSelectionNote] = useState<string | null>(null);
 
   const activeRecord = state.records.find((r) => r.id === state.selection.connectionId) ?? null;
+
+  async function restoreSavedSelection(records: ConnectionRecord[]) {
+    try {
+      const stored = await fetchActiveSelection();
+      setSelectionNote(stored.issue ?? null);
+      if (!stored.active) return;
+      const match = records.find(
+        (r) =>
+          r.status === "connected" &&
+          r.provider?.externalConnectionId === stored.active?.externalConnectionId,
+      );
+      if (match) {
+        dispatch({ type: "set_active", id: match.id });
+      } else {
+        setSelectionNote("Saved active selection does not match any discovered connected account.");
+      }
+    } catch (e) {
+      setSelectionNote(`Could not load saved active selection: ${errorMessage(e)}`);
+    }
+  }
 
   async function runDiscovery() {
     setDiscovery({ loading: true, error: null });
     try {
       const found = await provider.discoverAuthorizedAccounts();
-      dispatch({ type: "discovered", records: found.map(recordFromDiscovered) });
+      const records = found.map(recordFromDiscovered);
+      dispatch({ type: "discovered", records });
       setDiscovery({ loading: false, error: null });
+      if (MODE === "composio") {
+        await restoreSavedSelection(records);
+      }
     } catch (e) {
       setDiscovery({ loading: false, error: errorMessage(e) });
+    }
+  }
+
+  async function selectActive(record: ConnectionRecord) {
+    if (MODE !== "composio") {
+      // Mock mode keeps its in-memory demo behavior.
+      dispatch({ type: "set_active", id: record.id });
+      return;
+    }
+    if (!record.provider) return;
+    try {
+      await saveActiveSelection(record.provider.externalConnectionId);
+      dispatch({ type: "set_active", id: record.id });
+      setSelectionNote(null);
+    } catch (e) {
+      // No fake success: the selection is only applied once the server accepted it.
+      setSelectionNote(`Could not save active selection: ${errorMessage(e)}`);
     }
   }
 
@@ -291,6 +337,7 @@ export function SocialConnections() {
           The publishing destination is an explicit selection, separate from any account&rsquo;s
           identity — connections can change while the destination stays a deliberate choice.
         </p>
+        {selectionNote && <p className="status-detail is-error">{selectionNote}</p>}
       </div>
 
       {provider.connect && (
@@ -342,7 +389,7 @@ export function SocialConnections() {
             onTest={() => void testConnection(record)}
             onReplace={(handle) => void replaceAccount(record, handle)}
             onDisconnect={() => void disconnect(record)}
-            onSetActive={() => dispatch({ type: "set_active", id: record.id })}
+            onSetActive={() => void selectActive(record)}
           />
         ))}
       </section>

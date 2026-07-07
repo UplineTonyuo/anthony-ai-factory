@@ -36,6 +36,34 @@ function apiError(status: number, body: unknown): Error {
   return new Error(message);
 }
 
+export interface ActiveSelectionResult {
+  active: { platform: "instagram"; externalConnectionId: string } | null;
+  /** Honest reason when a stored selection was rejected by server validation. */
+  issue?: string;
+}
+
+/**
+ * Active-selection persistence, backed by the server boundary. Module-level
+ * functions rather than SocialProvider members: the selection is app state,
+ * not a provider capability.
+ */
+export async function fetchActiveSelection(): Promise<ActiveSelectionResult> {
+  const response = await fetch("/api/social/instagram/active-selection");
+  const body = await readJson(response);
+  if (!response.ok) throw apiError(response.status, body);
+  return body as ActiveSelectionResult;
+}
+
+export async function saveActiveSelection(externalConnectionId: string): Promise<void> {
+  const response = await fetch("/api/social/instagram/active-selection", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ externalConnectionId }),
+  });
+  const body = await readJson(response);
+  if (!response.ok) throw apiError(response.status, body);
+}
+
 export const composioInstagramProvider: SocialProvider = {
   name: "composio-instagram",
 

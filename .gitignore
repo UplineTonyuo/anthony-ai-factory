@@ -3,6 +3,7 @@ node_modules/
 dist/
 logs/
 *.log
+server/data/
 .env
 .env.*
 !.env.example
