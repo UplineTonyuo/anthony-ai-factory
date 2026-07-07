@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { SocialConnections } from "./pages/SocialConnections";
+import { ContentQueue } from "./pages/ContentQueue";
 
-type View = "dashboard" | "connections";
+type View = "dashboard" | "connections" | "queue";
 
 export default function App() {
   const [view, setView] = useState<View>("dashboard");
@@ -29,15 +30,19 @@ export default function App() {
           >
             Social Connections
           </button>
+          <button
+            className={view === "queue" ? "nav-item active" : "nav-item"}
+            onClick={() => setView("queue")}
+          >
+            Content Queue
+          </button>
         </nav>
         <div className="sidebar-foot">Step 1 foundation · demo mode</div>
       </aside>
       <main className="content">
-        {view === "dashboard" ? (
-          <Dashboard onOpenConnections={() => setView("connections")} />
-        ) : (
-          <SocialConnections />
-        )}
+        {view === "dashboard" && <Dashboard onOpenConnections={() => setView("connections")} />}
+        {view === "connections" && <SocialConnections />}
+        {view === "queue" && <ContentQueue />}
       </main>
     </div>
   );

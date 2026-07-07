@@ -59,3 +59,26 @@ export interface ActivePublishingSelection {
   /** null when no destination is selected. */
   connectionId: string | null;
 }
+
+export type DraftContentType = "reel" | "image" | "carousel";
+
+/**
+ * A queued draft. The destination is bound server-side from the persisted
+ * active publishing selection at creation time — never chosen by the client.
+ */
+export interface DraftItem {
+  id: string;
+  platform: Platform;
+  destinationExternalConnectionId: string;
+  contentType: DraftContentType;
+  caption: string;
+  mediaRef?: string;
+  /** ISO timestamp of the intended publish time. */
+  scheduledAt: string;
+  /** IANA timezone the time was entered in. */
+  timezone: string;
+  status: "draft";
+  createdBy: "human" | "agent";
+  createdAt: string;
+  updatedAt: string;
+}

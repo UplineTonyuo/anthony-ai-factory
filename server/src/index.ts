@@ -6,6 +6,7 @@ import {
   testInstagramConnection,
 } from "./composio.js";
 import { readSelection, writeSelection } from "./selectionStore.js";
+import { createDraft, listDrafts, type DraftContentType } from "./draftStore.js";
 
 /**
  * Minimal deployable API boundary between the browser and Composio.
@@ -138,6 +139,67 @@ const server = createServer(async (req, res) => {
       sendJson(res, 200, {
         active: { platform: stored.platform, externalConnectionId: stored.externalConnectionId },
       });
+      return;
+    }
+
+    if (route === "GET /api/social/instagram/drafts") {
+      sendJson(res, 200, { drafts: listDrafts() });
+      return;
+    }
+
+    if (route === "POST /api/social/instagram/drafts") {
+      const body = await readJsonBody(req);
+      const contentType = body?.contentType;
+      if (contentType !== "reel" && contentType !== "image" && contentType !== "carousel") {
+        sendJson(res, 400, { error: "contentType must be one of: reel, image, carousel" });
+        return;
+      }
+      const caption = typeof body?.caption === "string" ? body.caption.trim() : "";
+      if (!caption) {
+        sendJson(res, 400, { error: "Missing required field: caption" });
+        return;
+      }
+      const scheduledAt = typeof body?.scheduledAt === "string" ? body.scheduledAt : "";
+      if (!scheduledAt || Number.isNaN(Date.parse(scheduledAt))) {
+        sendJson(res, 400, { error: "scheduledAt must be a valid ISO timestamp" });
+        return;
+      }
+      const timezone = typeof body?.timezone === "string" && body.timezone ? body.timezone : "Asia/Manila";
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: timezone });
+      } catch {
+        sendJson(res, 400, { error: `Unknown IANA timezone: ${timezone.slice(0, 60)}` });
+        return;
+      }
+      const mediaRef = typeof body?.mediaRef === "string" && body.mediaRef.trim() ? body.mediaRef.trim() : undefined;
+
+      // Destination is bound server-side from the persisted active selection —
+      // the client cannot choose or spoof it.
+      const stored = readSelection();
+      if (!stored) {
+        sendJson(res, 409, {
+          error: "No active publishing destination is set. Select an active publishing account first.",
+        });
+        return;
+      }
+      const check = await validateSelection(stored.externalConnectionId);
+      if (!check.ok) {
+        sendJson(res, 409, {
+          error: `Active publishing destination is not usable: ${check.reason}`,
+        });
+        return;
+      }
+
+      const draft = createDraft({
+        destinationExternalConnectionId: stored.externalConnectionId,
+        contentType: contentType as DraftContentType,
+        caption,
+        mediaRef,
+        scheduledAt,
+        timezone,
+        createdBy: "human",
+      });
+      sendJson(res, 201, { draft });
       return;
     }
 

@@ -490,3 +490,59 @@ input:focus-visible {
     gap: 0.75rem;
   }
 }
+
+/* ---------- Content queue ---------- */
+
+.draft-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-width: 520px;
+}
+
+.draft-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.draft-form select,
+.draft-form textarea,
+.draft-form input {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.55rem 0.85rem;
+  font: inherit;
+}
+
+.queue-heading {
+  font-size: 1.1rem;
+  margin: 1.75rem 0 0.9rem;
+}
+
+.draft-item {
+  margin-bottom: 1rem;
+}
+
+.draft-item-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.draft-time {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.draft-caption {
+  margin: 0.75rem 0 0;
+  color: var(--text);
+  white-space: pre-wrap;
+}
