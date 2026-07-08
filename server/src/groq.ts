@@ -746,3 +746,223 @@ function validateTomAssignment(assignment: unknown): TomAssignment {
     rationale: rationale.slice(0, 500),
   };
 }
+
+/* ============================================================
+ * TOM — WEEKLY CAMPAIGN PLANNING (Milestone 8A)
+ *
+ * Tom plans a small campaign of assignments together, as one
+ * coherent request, rather than making N independent decisions.
+ * Scheduling is deliberately excluded from this contract — it is
+ * assigned deterministically in code at the route boundary.
+ * ============================================================ */
+
+export interface TomCampaignItem {
+  sequence: number;
+  assignedAgent: "personal-brand";
+  goal: string;
+  contentType: PersonalBrandContentType;
+  sourceTheme: string;
+  rationale: string;
+}
+
+const CAMPAIGN_RATIONALE_MAX_LENGTH = 500;
+const CAMPAIGN_GOAL_MAX_LENGTH = 400;
+
+/** Normalizes a theme label for duplicate detection (case/whitespace only). */
+function normalizeThemeForComparison(theme: string): string {
+  return theme.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export async function requestTomCampaignPlan(
+  objective: string,
+  count: number,
+  recentWork: RecentWorkItem[],
+): Promise<TomCampaignItem[]> {
+  const apiKey = process.env.GROQ_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new Error("GROQ_API_KEY is not configured.");
+  }
+
+  const model = process.env.GROQ_MODEL?.trim();
+
+  if (!model) {
+    throw new Error("GROQ_MODEL is not configured.");
+  }
+
+  const response = await fetch(GROQ_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.7,
+      max_tokens: 900,
+      response_format: {
+        type: "json_object",
+      },
+      messages: [
+        {
+          role: "system",
+          content: `
+You are Tom, the AI Manager of Anthony's personal-brand operation.
+
+You are planning a small content campaign of exactly ${count} items as ONE
+coherent plan, not ${count} unrelated decisions. Choose a useful mix of
+content types and distinct themes that together tell a varied, coherent
+week of content, grounded only in the verified theme catalog below.
+
+Review the recent work the user message provides and avoid repeating those
+themes when a distinct catalog theme is available.
+
+${TOM_MANAGER_CONTEXT}
+
+OUTPUT RULES
+
+Return only valid JSON with exactly this shape:
+{ "items": [ { "sequence", "assignedAgent", "goal", "contentType", "sourceTheme", "rationale" }, ... ] }
+
+items must contain exactly ${count} entries.
+sequence must be 1 through ${count}, each used exactly once.
+assignedAgent must be exactly "personal-brand" for every item.
+goal must be one specific, concrete content mission grounded in the chosen theme.
+contentType must be one of: carousel, motivational_post, reel.
+sourceTheme must be exactly one catalog theme label, and every item must use a
+DIFFERENT catalog theme from the others in this plan.
+rationale must be at most 2 sentences explaining that item's role in the campaign.
+
+No markdown fences.
+No extra keys.
+No commentary outside JSON.
+          `.trim(),
+        },
+        {
+          role: "user",
+          content: JSON.stringify({ objective, count, recentWork }),
+        },
+      ],
+    }),
+  });
+
+  const rawText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      `Groq request failed (${response.status}): ${rawText.slice(0, 300)}`,
+    );
+  }
+
+  let payload: unknown;
+
+  try {
+    payload = JSON.parse(rawText);
+  } catch {
+    throw new Error("Groq returned invalid response JSON.");
+  }
+
+  const content = extractGeneratedContent(payload);
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error("Tom produced invalid structured JSON for the campaign plan.");
+  }
+
+  return validateTomCampaignPlan(parsed, count);
+}
+
+function validateTomCampaignPlan(plan: unknown, expectedCount: number): TomCampaignItem[] {
+  if (typeof plan !== "object" || plan === null) {
+    throw new Error("Tom produced an invalid campaign plan object.");
+  }
+
+  const items = (plan as Record<string, unknown>).items;
+
+  if (!Array.isArray(items)) {
+    throw new Error("Tom's campaign plan did not contain an items array.");
+  }
+
+  if (items.length !== expectedCount) {
+    throw new Error(
+      `Tom's campaign plan must contain exactly ${expectedCount} items (got ${items.length}).`,
+    );
+  }
+
+  const validated: TomCampaignItem[] = items.map((raw, index) => {
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error(`Campaign item ${index + 1} is invalid.`);
+    }
+
+    const record = raw as Record<string, unknown>;
+
+    if (record.assignedAgent !== "personal-brand") {
+      throw new Error(
+        `Campaign item ${index + 1} assigned an unsupported agent. Only "personal-brand" is available.`,
+      );
+    }
+
+    const sequence = record.sequence;
+
+    if (typeof sequence !== "number" || !Number.isInteger(sequence)) {
+      throw new Error(`Campaign item ${index + 1} has an invalid sequence.`);
+    }
+
+    const goal = typeof record.goal === "string" ? record.goal.trim() : "";
+
+    if (!goal) {
+      throw new Error(`Campaign item ${index + 1} produced an empty goal.`);
+    }
+
+    const contentType = record.contentType;
+
+    if (
+      contentType !== "carousel" &&
+      contentType !== "motivational_post" &&
+      contentType !== "reel"
+    ) {
+      throw new Error(`Campaign item ${index + 1} chose an unsupported content type.`);
+    }
+
+    const sourceTheme =
+      typeof record.sourceTheme === "string" ? record.sourceTheme.trim() : "";
+
+    if (!sourceTheme) {
+      throw new Error(`Campaign item ${index + 1} produced an empty sourceTheme.`);
+    }
+
+    const rationale =
+      typeof record.rationale === "string" ? record.rationale.trim() : "";
+
+    if (!rationale) {
+      throw new Error(`Campaign item ${index + 1} produced an empty rationale.`);
+    }
+
+    return {
+      sequence,
+      assignedAgent: "personal-brand",
+      goal: goal.slice(0, CAMPAIGN_GOAL_MAX_LENGTH),
+      contentType,
+      sourceTheme,
+      rationale: rationale.slice(0, CAMPAIGN_RATIONALE_MAX_LENGTH),
+    };
+  });
+
+  const sequences = validated.map((item) => item.sequence).sort((a, b) => a - b);
+  const expectedSequences = Array.from({ length: expectedCount }, (_, i) => i + 1);
+  if (JSON.stringify(sequences) !== JSON.stringify(expectedSequences)) {
+    throw new Error(
+      `Tom's campaign plan must use unique sequences 1..${expectedCount}.`,
+    );
+  }
+
+  const normalizedThemes = validated.map((item) => normalizeThemeForComparison(item.sourceTheme));
+  if (new Set(normalizedThemes).size !== normalizedThemes.length) {
+    throw new Error("Tom's campaign plan repeated the same sourceTheme across items.");
+  }
+
+  return validated.sort((a, b) => a.sequence - b.sequence);
+}
