@@ -11,6 +11,7 @@ import {
   type PersonalBrandContentType,
 } from "./groq.js";
 import { createDraft, listDrafts, type DraftContentType } from "./draftStore.js";
+import { runTomDelegation } from "./tomManager.js";
 
 /**
  * Minimal deployable API boundary between the browser and Composio.
@@ -322,6 +323,56 @@ const server = createServer(async (req, res) => {
         draft,
         generated,
       });
+      return;
+    }
+
+    if (route === "POST /api/agents/tom/run") {
+      const body = await readJsonBody(req);
+
+      // Temporary deterministic persistence fallback: DraftItem requires
+      // scheduledAt/timezone, so a default is computed HERE at the route
+      // boundary. It is not an agent decision and not scheduling
+      // intelligence — a future scheduling policy/agent replaces this
+      // default without touching Tom or the specialist.
+      let scheduledAt = typeof body?.scheduledAt === "string" ? body.scheduledAt : "";
+      if (scheduledAt && Number.isNaN(Date.parse(scheduledAt))) {
+        sendJson(res, 400, { error: "scheduledAt must be a valid ISO timestamp" });
+        return;
+      }
+      if (!scheduledAt) {
+        scheduledAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      }
+      const timezone = typeof body?.timezone === "string" && body.timezone ? body.timezone : "Asia/Manila";
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: timezone });
+      } catch {
+        sendJson(res, 400, { error: `Unknown IANA timezone: ${timezone.slice(0, 60)}` });
+        return;
+      }
+
+      // Destination is bound server-side from the persisted active selection —
+      // the client cannot choose or spoof it.
+      const stored = readSelection();
+      if (!stored) {
+        sendJson(res, 409, {
+          error: "No active publishing destination is set. Select an active publishing account first.",
+        });
+        return;
+      }
+      const check = await validateSelection(stored.externalConnectionId);
+      if (!check.ok) {
+        sendJson(res, 409, {
+          error: `Active publishing destination is not usable: ${check.reason}`,
+        });
+        return;
+      }
+
+      const result = await runTomDelegation({
+        destinationExternalConnectionId: stored.externalConnectionId,
+        scheduledAt,
+        timezone,
+      });
+      sendJson(res, 201, { assignment: result.assignment, draft: result.draft });
       return;
     }
 

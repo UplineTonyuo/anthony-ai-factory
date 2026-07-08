@@ -540,3 +540,209 @@ function extractGeneratedContent(payload: unknown): string {
 
   return content;
 }
+/* ============================================================
+ * TOM — AI MANAGER (Milestone 7)
+ *
+ * Tom decides the next content assignment and delegates it.
+ * He never writes the final content himself; the Personal Brand
+ * Specialist executes assignments through the proven
+ * generatePersonalBrandContent path above, which remains the
+ * fabrication firewall with the full source of truth.
+ * ============================================================ */
+
+export interface TomAssignment {
+  assignedAgent: "personal-brand";
+  goal: string;
+  contentType: PersonalBrandContentType;
+  sourceTheme: string;
+  rationale: string;
+}
+
+/** Compact safe record of recent queue work, for repetition avoidance. */
+export interface RecentWorkItem {
+  contentType: string;
+  theme: string;
+}
+
+/*
+ * Compact manager context: verified theme labels with one-line
+ * descriptors condensed strictly from ANTHONY_STORY_CONTEXT above.
+ * No new facts. Tom only needs to pick a direction; the specialist's
+ * generation prompt carries the full source of truth and all
+ * fabrication bans.
+ */
+const TOM_MANAGER_CONTEXT = `
+VERIFIED THEME CATALOG (sourceTheme must be exactly one of these labels)
+
+1. Knowing frameworks but failing to execute consistently — Anthony could explain SMARTER goals, discipline systems, and pattern interruption, yet rarely executed before real mentorship.
+2. Consuming self-development without application — years of videos and frameworks as expensive entertainment.
+3. Mentorship and accountability — a video cannot see your blind spots or confront your patterns in real time; MJ Lopez and William Jones could.
+4. Family responsibility — a young financial provider; his mother's years of dialysis. Handle with care, never as clickbait.
+5. Building discipline — confronting procrastination, doom scrolling, inconsistency, avoidance, and low standards as identity patterns.
+6. Business and sales journey — earning in sales while ambitious but directionless.
+7. Moving from sales into operations — learning web design, lead generation, outreach, content, and operations at Wolf Forge Digital.
+8. Understanding delivery to believe in service value — it is hard to deeply sell a service without knowing how the value is delivered.
+9. Poverty and ambition — a lower-income upbringing in Tagum City; treated as the black sheep; earning the program fee he could not afford.
+10. Becoming an operator before building an empire — pausing a brand dream to build skills and stability first; focus compounds, distraction dilutes.
+11. Ego and recognition — praise activating over-strategizing; compliments belong in the heart, not in the head.
+12. Leaving income that conflicted with conscience — casino-operations income that damaged his peace of mind. Never glorify gambling.
+13. Ongoing transformation — still becoming, not a finished guru; documenting change while it happens.
+
+MANAGER RULES
+Ground every assignment in one catalog theme only.
+Do not invent life events, achievements, statistics, or unsupported claims.
+Do not portray Anthony as a finished guru.
+Never reveal private business ownership details.
+Avoid themes that appear in the recent work provided, when a distinct catalog theme is available.
+`;
+
+export async function requestTomAssignment(
+  recentWork: RecentWorkItem[],
+): Promise<TomAssignment> {
+  const apiKey = process.env.GROQ_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new Error("GROQ_API_KEY is not configured.");
+  }
+
+  const model = process.env.GROQ_MODEL?.trim();
+
+  if (!model) {
+    throw new Error("GROQ_MODEL is not configured.");
+  }
+
+  const response = await fetch(GROQ_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.7,
+      max_tokens: 400,
+      response_format: {
+        type: "json_object",
+      },
+      messages: [
+        {
+          role: "system",
+          content: `
+You are Tom, the AI Manager of Anthony's personal-brand operation.
+
+You decide the single next piece of content work and delegate it to the
+personal-brand specialist. You do not write the final content yourself.
+
+Review the recent work the user message provides and choose ONE next
+assignment grounded in the verified theme catalog below.
+
+${TOM_MANAGER_CONTEXT}
+
+OUTPUT RULES
+
+Return only valid JSON with exactly these keys:
+assignedAgent
+goal
+contentType
+sourceTheme
+rationale
+
+assignedAgent must be exactly "personal-brand".
+goal must be one specific, concrete content mission grounded in the chosen theme.
+contentType must be one of: carousel, motivational_post, reel.
+sourceTheme must be exactly one catalog theme label (the text after the number).
+rationale must be at most 2 sentences explaining the management decision.
+
+No markdown fences.
+No extra keys.
+No commentary outside JSON.
+          `.trim(),
+        },
+        {
+          role: "user",
+          content: JSON.stringify({ recentWork }),
+        },
+      ],
+    }),
+  });
+
+  const rawText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      `Groq request failed (${response.status}): ${rawText.slice(0, 300)}`,
+    );
+  }
+
+  let payload: unknown;
+
+  try {
+    payload = JSON.parse(rawText);
+  } catch {
+    throw new Error("Groq returned invalid response JSON.");
+  }
+
+  const content = extractGeneratedContent(payload);
+
+  let assignment: unknown;
+
+  try {
+    assignment = JSON.parse(content);
+  } catch {
+    throw new Error("Tom produced invalid structured JSON.");
+  }
+
+  return validateTomAssignment(assignment);
+}
+
+function validateTomAssignment(assignment: unknown): TomAssignment {
+  if (typeof assignment !== "object" || assignment === null) {
+    throw new Error("Tom produced an invalid assignment object.");
+  }
+
+  const record = assignment as Record<string, unknown>;
+
+  if (record.assignedAgent !== "personal-brand") {
+    throw new Error(
+      'Tom assigned an unsupported agent. Only "personal-brand" is available.',
+    );
+  }
+
+  const goal = typeof record.goal === "string" ? record.goal.trim() : "";
+
+  if (!goal) {
+    throw new Error("Tom produced an empty goal.");
+  }
+
+  const contentType = record.contentType;
+
+  if (
+    contentType !== "carousel" &&
+    contentType !== "motivational_post" &&
+    contentType !== "reel"
+  ) {
+    throw new Error("Tom chose an unsupported content type.");
+  }
+
+  const sourceTheme =
+    typeof record.sourceTheme === "string" ? record.sourceTheme.trim() : "";
+
+  if (!sourceTheme) {
+    throw new Error("Tom produced an empty sourceTheme.");
+  }
+
+  const rationale =
+    typeof record.rationale === "string" ? record.rationale.trim() : "";
+
+  if (!rationale) {
+    throw new Error("Tom produced an empty rationale.");
+  }
+
+  return {
+    assignedAgent: "personal-brand",
+    goal,
+    contentType,
+    sourceTheme,
+    rationale: rationale.slice(0, 500),
+  };
+}

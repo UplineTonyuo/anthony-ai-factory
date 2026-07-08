@@ -29,6 +29,8 @@ export interface DraftItem {
   timezone: string;
   status: "draft";
   createdBy: "human" | "agent";
+  /** Verified theme this draft was assigned/grounded in (agent-created drafts). */
+  sourceTheme?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -41,6 +43,7 @@ export interface NewDraftInput {
   scheduledAt: string;
   timezone: string;
   createdBy: "human" | "agent";
+  sourceTheme?: string;
 }
 
 function isDraftItem(value: unknown): value is DraftItem {
@@ -54,7 +57,11 @@ function isDraftItem(value: unknown): value is DraftItem {
     typeof record.caption === "string" &&
     typeof record.scheduledAt === "string" &&
     typeof record.timezone === "string" &&
-    record.status === "draft"
+    record.status === "draft" &&
+    // Optional field: absent is valid (legacy drafts); present must be a
+    // string. Malformed values fail the item, matching how every other
+    // corrupt field is handled (filter, never crash).
+    (record.sourceTheme === undefined || typeof record.sourceTheme === "string")
   );
 }
 
@@ -82,6 +89,7 @@ export function createDraft(input: NewDraftInput): DraftItem {
     timezone: input.timezone,
     status: "draft",
     createdBy: input.createdBy,
+    ...(input.sourceTheme ? { sourceTheme: input.sourceTheme } : {}),
     createdAt: now,
     updatedAt: now,
   };
