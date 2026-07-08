@@ -6,6 +6,10 @@ import {
   testInstagramConnection,
 } from "./composio.js";
 import { readSelection, writeSelection } from "./selectionStore.js";
+import {
+  generatePersonalBrandContent,
+  type PersonalBrandContentType,
+} from "./groq.js";
 import { createDraft, listDrafts, type DraftContentType } from "./draftStore.js";
 
 /**
@@ -200,6 +204,124 @@ const server = createServer(async (req, res) => {
         createdBy: "human",
       });
       sendJson(res, 201, { draft });
+      return;
+    }
+
+    if (route === "POST /api/agents/personal-brand/draft") {
+      const body = await readJsonBody(req);
+
+      const goal =
+        typeof body?.goal === "string" ? body.goal.trim() : "";
+
+      if (!goal) {
+        sendJson(res, 400, {
+          error: "Missing required field: goal",
+        });
+        return;
+      }
+
+      const contentType = body?.contentType;
+
+      if (
+        contentType !== "carousel" &&
+        contentType !== "motivational_post" &&
+        contentType !== "reel"
+      ) {
+        sendJson(res, 400, {
+          error:
+            "contentType must be one of: carousel, motivational_post, reel",
+        });
+        return;
+      }
+
+      const scheduledAt =
+        typeof body?.scheduledAt === "string"
+          ? body.scheduledAt
+          : "";
+
+      if (!scheduledAt || Number.isNaN(Date.parse(scheduledAt))) {
+        sendJson(res, 400, {
+          error: "scheduledAt must be a valid ISO timestamp",
+        });
+        return;
+      }
+
+      const timezone =
+        typeof body?.timezone === "string" && body.timezone
+          ? body.timezone
+          : "Asia/Manila";
+
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: timezone });
+      } catch {
+        sendJson(res, 400, {
+          error: `Unknown IANA timezone: ${timezone.slice(0, 60)}`,
+        });
+        return;
+      }
+
+      const stored = readSelection();
+
+      if (!stored) {
+        sendJson(res, 409, {
+          error:
+            "No active publishing destination is set. Select an active publishing account first.",
+        });
+        return;
+      }
+
+      const check = await validateSelection(
+        stored.externalConnectionId,
+      );
+
+      if (!check.ok) {
+        sendJson(res, 409, {
+          error:
+            `Active publishing destination is not usable: ${check.reason}`,
+        });
+        return;
+      }
+
+      const generated = await generatePersonalBrandContent({
+        goal,
+        contentType: contentType as PersonalBrandContentType,
+      });
+
+      const draftContentType: DraftContentType =
+        generated.contentType === "motivational_post"
+          ? "image"
+          : generated.contentType;
+
+      const carouselBody =
+        generated.contentType === "carousel"
+          ? generated.slides
+              .map((slide, index) => `Slide ${index + 1}: ${slide}`)
+              .join("\n\n")
+          : "";
+
+      const caption = [
+        generated.hook,
+        carouselBody,
+        generated.caption,
+        generated.cta,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      const draft = createDraft({
+        destinationExternalConnectionId:
+          stored.externalConnectionId,
+        contentType: draftContentType,
+        caption,
+        scheduledAt,
+        timezone,
+        createdBy: "agent",
+      });
+
+      sendJson(res, 201, {
+        draft,
+        generated,
+      });
       return;
     }
 
