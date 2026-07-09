@@ -387,9 +387,9 @@ const server = createServer(async (req, res) => {
       }
 
       const count = body?.count;
-      if (count !== 3) {
+      if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > 10) {
         sendJson(res, 400, {
-          error: "count must be exactly 3 for this milestone's campaign proof.",
+          error: "count must be an integer from 1 to 10.",
         });
         return;
       }

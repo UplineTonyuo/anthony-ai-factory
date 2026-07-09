@@ -799,7 +799,7 @@ export async function requestTomCampaignPlan(
     body: JSON.stringify({
       model,
       temperature: 0.7,
-      max_tokens: 900,
+      max_tokens: Math.min(3000, 500 + count * 250),
       response_format: {
         type: "json_object",
       },
